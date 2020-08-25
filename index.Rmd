@@ -1,0 +1,338 @@
+---
+title: "Trabalho 04"
+header-includes:
+  -\usepackage{graphicx}
+  -\usepackage{tikz}
+  -\usepackage{amsmath,amssymb,exscale}
+  -\usepackage[latin1]{inputenc}
+  -\usepackage[portugues]{babel}
+  -\usepackage{fancybox} 
+  -\usepackage{float}
+output:
+  html_document:
+    toc: true
+    toc_depth: 5
+    toc_float: TRUE
+---
+
+<html>
+<body>
+<style>
+
+h1.title {
+  display: none;
+}
+
+div.a {
+	text-align: center;
+}
+
+</style>
+
+<div class="a">
+
+<font color="white"><p> . </p></font>
+
+# Séries Temporais
+#### Igor Kuivjogi / Kaíque Ferreira / Nilo Célio
+#### <b> 4° Trabalho de Séries Temporais <b>
+##### 22 de Agosto de 2020
+
+<font color="white"><p> . </p></font>
+
+</div>
+
+Referências:    
+     
+- Time Series Analysis (with Applications in R) - Jonathan D. Cryer, Kung-Sik Chan
+
+```{r setup, echo = FALSE, warning = FALSE, message=FALSE}
+
+library(tidyverse)
+library(BatchGetSymbols)
+library(forecast)
+library(tseries)
+library(plotly)
+
+# seta o tema default
+theme_set(theme_classic())
+
+```
+
+
+## Lendo dados
+```{r, echo = FALSE, warning = FALSE, message=FALSE}
+
+acao <- c('LREN3.SA')
+bg <- '2015-01-02' 
+lst <- '2019-12-31'
+bench <- '^BVSP'  
+
+# le dados da ação
+renner <- BatchGetSymbols(tickers = acao,
+                          bench.ticker = bench,
+                          first.date = bg,
+                          last.date = lst)$df.tickers
+
+renner$ret.adjusted.prices[1] <- 0.02
+renner$ret.adjusted.prices[779] <- -0.04
+renner$ret.adjusted.prices[780] <- -0.01
+renner$ret.adjusted.prices[1038] <- 0.001
+renner$ret.adjusted.prices[1039] <- 0.02
+
+# usando retornos em porcentagem
+renner$ret.adjusted.prices <- renner$ret.adjusted.prices * 100
+
+```
+
+
+## Gráfico da série
+```{r}
+
+ggplotly(
+ggplot(renner, aes(x = ref.date, y = ret.adjusted.prices)) +
+  geom_line() +
+  labs(x = 'data', y = 'retorno (em %)')
+)
+
+```
+
+
+## ACF
+```{r}
+
+# guardando série de retorno
+rt <- renner$ret.adjusted.prices
+
+acf(rt)
+
+```
+
+
+## PACF
+```{r}
+
+pacf(rt)
+
+```
+    
+Os gráficos indicam que a śerie $r_t$ não possui autocorrelação.     
+Porém, pelo gráfico da série, podemos ver que a variância não parece ser constante ao longo do tempo,
+pois em alguns dias seguidos o retorno é muito alto ou muito baixo.     
+As séries correlacionadas podem ser estudadas usando o valor absoluto ou o valor quadrático. Se os retornos diários são i.i.d., então os retornos diários em valor absoluto (ou ao quadrado) também serão.
+
+
+****
+
+
+## ACF para valor absoluto e quadrático
+```{r, fig.asp = 1}
+
+par(mfrow = c(2, 1))
+acf(abs(rt), main = 'retorno em valor absoluto')
+acf(rt ^ 2, main = 'retorno quadrático')
+par(mfrow = c(1, 1))
+
+```
+    
+## PACF para valor absoluto e quadrático
+```{r, fig.asp = 1}
+
+par(mfrow = c(2, 1))
+pacf(abs(rt), main = 'retorno em valor absoluto')
+pacf(rt ^ 2, main = 'retorno quadrático')
+par(mfrow = c(1, 1))
+
+```    
+    
+Como podemos ver, as séries em valor absoluto e ao quadrado possuem autocorrelação, contradizendo a 
+hipótese (para a série original $r_t$) que não existia autocorrelação.
+
+
+****
+
+# Modelo ARCH
+
+Os modelos ARCH, ou modelos auto-regressivos com heterocedasticidade condicional,  foram introduzidos por Engle (1982), com o objetivo de estimar a variância da inflação. A expectativa aqui é que o retorno $X_t$ seja não-correlacionado serialmente, mas a volatilidade (variância condicional) depende de retornos passados por meio de uma função quadrática.
+
+
+## Definição
+
+Um modelo $ARCH(p)$ é definido por
+
+$X_t = \sqrt{h_t}\epsilon_t$,
+
+$h_t = \alpha_0 + \alpha_1X_{t-1}^2+\ldots+ \alpha_rX_{t-p}^2$,
+
+onde $\epsilon_t$ é uma sequência de variáveis aleatórias independentes e identicamente distribuídas (i.i.d.)
+com média zero e variância um,  $\alpha_0 > 0$,  $\alpha_1 \geq 0$, $i > 0$.
+
+Na prática, usualmente supomos $\epsilon_t$ ~ $N(0,1)$ ou  $\epsilon_t$ ~ $t_v$ (distribuição $t$ de Student com $v$ graus de liberdade).
+
+## Propriedades do modelo $ARCH$
+
+$$ E(X_t) = 0 $$
+
+$$ Var(X_t) = \frac{\alpha_0}{1-\alpha_1} $$
+
+$$ Cov(X_{t+k}X_t|F_{t+k-1})=0 $$
+
+O modelo ARCH na verdade é um modelo de regressão, em que a variável resposta é a volatilidade condicional e os lags passados de $r_t ^ 2$ são as covariáveis.    
+    
+O modelo $ARCH(1)$ considera somente o retorno quadrático no instante $t$ como função do 
+retorno quadrático anterior, ou seja, $r_{t-1} ^ 2$. Portanto num modelo $ARCH(q)$, considera-se os
+$t - q$ retornos quadráticos, e não somente o anterior. 
+
+# Modelo GARCH
+
+Uma generalização dos modelos $ARCH$ foi sugerida por Bollerslev (1986), chamado modelo $GARCH$ (generalized $ARCH$).
+
+## Definição
+Um modelo $GARCH(p,q)$ é definido por
+
+$X_t = \sqrt{h_t}\epsilon_t$,
+
+$h_t = \alpha_0 + \sum_{\substack {i=1}}^{r} \alpha_iX_{\substack {t-i}}^{2} + \sum_{\substack {j=1}}^{s} \beta_jX_{\substack {t-j}}$  ,
+
+em que $\epsilon_t$ i.i.d., $\alpha_0 > 0$,  $\alpha_i \geq 0$, $\beta_j \geq 0$, $\sum_{\substack {i=1}}^{q}(\alpha_i + \beta_i) <1$, $r = max(p,q)$.
+
+
+No modelo $GARCH(p, q)$, além de considerarmos os retornos quadráticos passados, também leva-se
+em consideração as variâncias condicionais passadas.   
+
+
+****
+
+
+## Modelo ARMA para série $r_t$
+O modelo $GARCH(p, q)$ para a série original de retornos $r_t$ implica que a série quadrática
+$r_t ^ 2$ é modelada por um $ARMA(max\{p, q\}, q)$. Então podemos usar todas técnicas de identificação
+que aprendemos até agora para modelar $r_t^2$ como um modelo $ARMA(p, q)$:
+```{r}
+
+# deixando de fora 10 valores
+rt_treino <- rt[1:(length(rt) - 10)]
+
+# ajustando modelo ARMA
+mod <- auto.arima(rt_treino ^ 2, d = 0)
+summary(mod)
+
+```
+    
+O método automático `auto.arima` sugere um $ARMA(1, 1)$ para ajustar o retorno quadrático $r_t ^ 2$.    
+
+
+## Diagnóstico do modelo ARMA, para diferentes lags
+```{r}
+
+checkresiduals(mod, plot = F)
+checkresiduals(mod, plot = F, lag = 12)
+checkresiduals(mod, plot = F, lag = 16)
+checkresiduals(mod, plot = F, lag = 20)
+checkresiduals(mod, plot = F, lag = 24)
+
+```
+    
+Para diferentes lags, o teste de Ljung-Box não rejeita a hipótese nula de que
+os resíduos do modelo $ARMA(1, 1)$ são ruído branco. Através desta identificação,
+podemos ajustar um $GARCH(1, 1)$.    
+
+
+****
+
+
+## Ajustando o modelo GARCH
+```{r}
+
+g_model <- garch(rt_treino, order = c(1, 1), trace = F)
+summary(g_model)
+
+```
+
+## Diagnósticos do modelo
+O livro Time Series Analysis (with Applications in R) - Jonathan D. Cryer, Kung-Sik Chan sugere que se o modelo $GARCH(p, q)$, foi escolhido adequadamente, então
+o valor absoluto, ou quadrado dos resíduos, padronizados do modelo não devem possuir pontos significativos para o gráfico de ACF:
+```{r, fig.asp = 1}
+
+par(mfrow = c(2, 1))
+acf(abs(residuals(g_model)), na.action = na.pass)
+acf(residuals(g_model) ^ 2, na.action = na.pass)
+par(mfrow = c(1, 1))
+
+``` 
+    
+Os gráficos sugerem que o modelo $GARCH(1, 1)$ é adequado aos dados de retorno de ações da Renner.
+
+## Função matemática para o modelo $GARCH(1, 1)$:
+
+$X_t = \sqrt{h_t}\epsilon_t$,
+
+$h_t = 0.08554 + \sum_{\substack {i=1}}^{q} 0.01682X_{\substack {t-i}}^{2} + \sum_{\substack {j=1}}^{s} 0.96151X_{\substack {t-j}}$ ,
+
+em que $\epsilon_t$ i.i.d., $q = max(p,q)$.
+
+****
+
+
+## Ajustamento do modelo $GARCH(1, 1)$ à série $r_t$
+```{r, warning = F}
+
+# eleva ao quadrado porque o modelo ajusta o desvio padrão condicional, e não a variância condicional
+ggplotly(
+tibble(t = renner$ref.date[1:1233],
+       observado = rt_treino,
+       GARCH_pos = fitted(g_model)[, 1] ^ 2,
+       GARCH_neg = -fitted(g_model)[, 2] ^ 2) %>% 
+  ggplot(aes(x = t)) +
+  geom_line(aes(y = observado), color = 'grey50') +
+  geom_line(aes(y = GARCH_pos), color = 'red') +
+  geom_line(aes(y = GARCH_neg), color = 'red4')
+)
+
+```
+
+
+# Gráfico da predição
+A predição retorna o desvio padrão condicional, por isso eleva-se ao quadrado.
+```{r, warning = F}
+
+# dados de teste
+teste <- rt[1234:1243]
+pred <- predict(g_model, newdata = teste)[, 1] ^ 2
+
+tab_pred <- tibble(
+  t = renner$ref.date[1:1243],
+  observado = rt[1:1243],
+  predito_pos = c(rep(NA, 1233), pred),
+  predito_neg = c(rep(NA, 1233), -pred)
+)
+
+ggplotly(
+tab_pred[1100:1243, ] %>%
+  ggplot(aes(x = t)) +
+  geom_line(aes(y = observado), color = 'grey50') +
+  geom_line(aes(y = predito_pos), color = 'red') +
+  geom_line(aes(y = predito_neg), color = 'red4') +
+  geom_hline(yintercept = 0, linetype = 'dashed')
+)
+
+```
+
+## Erro de predição
+```{r}
+
+rmse <- function(y, y_hat) {
+  sqrt(sum((y - y_hat) ^ 2) / length(y))
+}
+
+cat('RMSE para dados de treino:\n')
+rmse(rt[1235:1243], predict(g_model, newdata = rt[1234:1243])[, 1][2:10])
+
+cat('RMSE para dados de teste:\n')
+rmse(teste[2:10], pred[2:10])
+
+```
+
+
+****
+
